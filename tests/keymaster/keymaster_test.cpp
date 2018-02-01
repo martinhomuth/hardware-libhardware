@@ -23,6 +23,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <memory>
 
 #include <gtest/gtest.h>
 
@@ -33,20 +34,18 @@
 #define LOG_TAG "keymaster_test"
 #include <utils/Log.h>
 
-#include <UniquePtr.h>
-
-#include <hardware/keymaster.h>
+#include <hardware/keymaster0.h>
 
 namespace android {
 
-class UniqueBlob : public UniquePtr<uint8_t[]> {
+class UniqueBlob : public std::unique_ptr<uint8_t[]> {
 public:
-    UniqueBlob(size_t length) :
+    explicit UniqueBlob(size_t length) :
             mLength(length) {
     }
 
     UniqueBlob(uint8_t* bytes, size_t length) :
-            UniquePtr<uint8_t[]>(bytes), mLength(length) {
+            std::unique_ptr<uint8_t[]>(bytes), mLength(length) {
     }
 
     bool operator==(const UniqueBlob &other) const {
@@ -92,13 +91,13 @@ std::ostream &operator<<(std::ostream &stream, const UniqueBlob& blob) {
 
 class UniqueKey : public UniqueBlob {
 public:
-    UniqueKey(keymaster_device_t** dev, uint8_t* bytes, size_t length) :
+    UniqueKey(keymaster0_device_t** dev, uint8_t* bytes, size_t length) :
             UniqueBlob(bytes, length), mDevice(dev) {
     }
 
     ~UniqueKey() {
         if (mDevice != NULL && *mDevice != NULL) {
-            keymaster_device_t* dev = *mDevice;
+            keymaster0_device_t* dev = *mDevice;
             if (dev->delete_keypair != NULL) {
                 dev->delete_keypair(dev, get(), length());
             }
@@ -106,7 +105,7 @@ public:
     }
 
 private:
-    keymaster_device_t** mDevice;
+    keymaster0_device_t** mDevice;
 };
 
 class UniqueReadOnlyBlob {
@@ -164,35 +163,35 @@ struct BIGNUM_Delete {
         BN_free(p);
     }
 };
-typedef UniquePtr<BIGNUM, BIGNUM_Delete> Unique_BIGNUM;
+typedef std::unique_ptr<BIGNUM, BIGNUM_Delete> Unique_BIGNUM;
 
 struct EVP_PKEY_Delete {
     void operator()(EVP_PKEY* p) const {
         EVP_PKEY_free(p);
     }
 };
-typedef UniquePtr<EVP_PKEY, EVP_PKEY_Delete> Unique_EVP_PKEY;
+typedef std::unique_ptr<EVP_PKEY, EVP_PKEY_Delete> Unique_EVP_PKEY;
 
 struct PKCS8_PRIV_KEY_INFO_Delete {
     void operator()(PKCS8_PRIV_KEY_INFO* p) const {
         PKCS8_PRIV_KEY_INFO_free(p);
     }
 };
-typedef UniquePtr<PKCS8_PRIV_KEY_INFO, PKCS8_PRIV_KEY_INFO_Delete> Unique_PKCS8_PRIV_KEY_INFO;
+typedef std::unique_ptr<PKCS8_PRIV_KEY_INFO, PKCS8_PRIV_KEY_INFO_Delete> Unique_PKCS8_PRIV_KEY_INFO;
 
 struct RSA_Delete {
     void operator()(RSA* p) const {
         RSA_free(p);
     }
 };
-typedef UniquePtr<RSA, RSA_Delete> Unique_RSA;
+typedef std::unique_ptr<RSA, RSA_Delete> Unique_RSA;
 
 struct EC_KEY_Delete {
     void operator()(EC_KEY* p) const {
         EC_KEY_free(p);
     }
 };
-typedef UniquePtr<EC_KEY, EC_KEY_Delete> Unique_EC_KEY;
+typedef std::unique_ptr<EC_KEY, EC_KEY_Delete> Unique_EC_KEY;
 
 
 /*
@@ -341,7 +340,7 @@ public:
 
         std::cout << "Using keymaster module: " << mod->name << std::endl;
 
-        ASSERT_EQ(0, keymaster_open(mod, &sDevice))
+        ASSERT_EQ(0, keymaster0_open(mod, &sDevice))
                 << "Should be able to open the keymaster device";
 
         ASSERT_EQ(KEYMASTER_MODULE_API_VERSION_0_2, mod->module_api_version)
@@ -364,14 +363,14 @@ public:
     }
 
     static void TearDownTestCase() {
-        ASSERT_EQ(0, keymaster_close(sDevice));
+        ASSERT_EQ(0, keymaster0_close(sDevice));
     }
 
 protected:
-    static keymaster_device_t* sDevice;
+    static keymaster0_device_t* sDevice;
 };
 
-keymaster_device_t* KeymasterBaseTest::sDevice = NULL;
+keymaster0_device_t* KeymasterBaseTest::sDevice = NULL;
 
 class KeymasterTest : public KeymasterBaseTest {
 };
@@ -395,8 +394,8 @@ class KeymasterGenerateECTest : public KeymasterBaseTest,
 TEST_P(KeymasterGenerateRSATest, GenerateKeyPair_RSA_Success) {
     keymaster_keypair_t key_type = TYPE_RSA;
     keymaster_rsa_keygen_params_t params = {
-            modulus_size: GetParam(),
-            public_exponent: RSA_F4,
+            .modulus_size = GetParam(),
+            .public_exponent = RSA_F4,
     };
 
     uint8_t* key_blob;
@@ -443,7 +442,7 @@ INSTANTIATE_TEST_CASE_P(RSA,
 TEST_P(KeymasterGenerateECTest, GenerateKeyPair_EC_Success) {
     keymaster_keypair_t key_type = TYPE_EC;
     keymaster_ec_keygen_params_t params = {
-            field_size: GetParam(),
+            .field_size = GetParam(),
     };
 
     uint8_t* key_blob;
@@ -650,9 +649,6 @@ TEST_F(KeymasterTest, GetKeypairPublic_EC_Success) {
 }
 
 TEST_F(KeymasterTest, GetKeypairPublic_NullKey_Failure) {
-    uint8_t* key_blob;
-    size_t key_blob_length;
-
     uint8_t* x509_data = NULL;
     size_t x509_data_length;
     ASSERT_EQ(-1,
@@ -864,8 +860,8 @@ TEST_F(KeymasterTest, SignData_RSA_Raw_Success) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_rsa_sign_params_t params = {
-            digest_type: DIGEST_NONE,
-            padding_type: PADDING_NONE,
+            .digest_type = DIGEST_NONE,
+            .padding_type = PADDING_NONE,
     };
 
     uint8_t* sig;
@@ -904,7 +900,7 @@ TEST_F(KeymasterTest, SignData_EC_Success) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_ec_sign_params_t params = {
-            digest_type: DIGEST_NONE,
+            .digest_type = DIGEST_NONE,
     };
 
     uint8_t* sig;
@@ -952,8 +948,8 @@ TEST_F(KeymasterTest, SignData_RSA_Raw_InvalidSizeInput_Failure) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_rsa_sign_params_t params = {
-            digest_type: DIGEST_NONE,
-            padding_type: PADDING_NONE,
+            .digest_type = DIGEST_NONE,
+            .padding_type = PADDING_NONE,
     };
 
     uint8_t* sig;
@@ -971,8 +967,8 @@ TEST_F(KeymasterTest, SignData_RSA_Raw_InvalidSizeInput_Failure) {
 
 TEST_F(KeymasterTest, SignData_RSA_Raw_NullKey_Failure) {
     keymaster_rsa_sign_params_t params = {
-            digest_type: DIGEST_NONE,
-            padding_type: PADDING_NONE,
+            .digest_type = DIGEST_NONE,
+            .padding_type = PADDING_NONE,
     };
 
     uint8_t* sig;
@@ -1002,8 +998,8 @@ TEST_F(KeymasterTest, SignData_RSA_Raw_NullInput_Failure) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_rsa_sign_params_t params = {
-            digest_type: DIGEST_NONE,
-            padding_type: PADDING_NONE,
+            .digest_type = DIGEST_NONE,
+            .padding_type = PADDING_NONE,
     };
 
     uint8_t* sig;
@@ -1030,12 +1026,9 @@ TEST_F(KeymasterTest, SignData_RSA_Raw_NullOutput_Failure) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_rsa_sign_params_t params = {
-            digest_type: DIGEST_NONE,
-            padding_type: PADDING_NONE,
+            .digest_type = DIGEST_NONE,
+            .padding_type = PADDING_NONE,
     };
-
-    uint8_t* sig;
-    size_t sig_length;
 
     UniqueReadOnlyBlob testData(TEST_RSA_KEY_1, sizeof(TEST_RSA_KEY_1));
     ASSERT_TRUE(testData.get() != NULL);
@@ -1061,8 +1054,8 @@ TEST_F(KeymasterTest, VerifyData_RSA_Raw_Success) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_rsa_sign_params_t params = {
-            digest_type: DIGEST_NONE,
-            padding_type: PADDING_NONE,
+            .digest_type = DIGEST_NONE,
+            .padding_type = PADDING_NONE,
     };
 
     UniqueReadOnlyBlob testData(TEST_SIGN_DATA_1, sizeof(TEST_SIGN_DATA_1));
@@ -1092,7 +1085,7 @@ TEST_F(KeymasterTest, VerifyData_EC_Raw_Success) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_ec_sign_params_t params = {
-            digest_type: DIGEST_NONE,
+            .digest_type = DIGEST_NONE,
     };
 
     uint8_t* sig;
@@ -1129,8 +1122,8 @@ TEST_F(KeymasterTest, VerifyData_RSA_Raw_BadSignature_Failure) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_rsa_sign_params_t params = {
-            digest_type: DIGEST_NONE,
-            padding_type: PADDING_NONE,
+            .digest_type = DIGEST_NONE,
+            .padding_type = PADDING_NONE,
     };
 
     ASSERT_EQ(-1,
@@ -1154,7 +1147,7 @@ TEST_F(KeymasterTest, VerifyData_EC_Raw_BadSignature_Failure) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_ec_sign_params_t params = {
-            digest_type: DIGEST_NONE,
+            .digest_type = DIGEST_NONE,
     };
 
     ASSERT_EQ(-1,
@@ -1166,8 +1159,8 @@ TEST_F(KeymasterTest, VerifyData_EC_Raw_BadSignature_Failure) {
 
 TEST_F(KeymasterTest, VerifyData_RSA_Raw_NullKey_Failure) {
     keymaster_rsa_sign_params_t params = {
-            digest_type: DIGEST_NONE,
-            padding_type: PADDING_NONE,
+            .digest_type = DIGEST_NONE,
+            .padding_type = PADDING_NONE,
     };
 
     UniqueReadOnlyBlob testData(TEST_SIGN_DATA_1, sizeof(TEST_SIGN_DATA_1));
@@ -1194,8 +1187,8 @@ TEST_F(KeymasterTest, VerifyData_RSA_NullInput_Failure) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_rsa_sign_params_t params = {
-            digest_type: DIGEST_NONE,
-            padding_type: PADDING_NONE,
+            .digest_type = DIGEST_NONE,
+            .padding_type = PADDING_NONE,
     };
 
     UniqueReadOnlyBlob testSig(TEST_SIGN_RSA_SIGNATURE_1, sizeof(TEST_SIGN_RSA_SIGNATURE_1));
@@ -1222,8 +1215,8 @@ TEST_F(KeymasterTest, VerifyData_RSA_NullSignature_Failure) {
     UniqueKey key(&sDevice, key_blob, key_blob_length);
 
     keymaster_rsa_sign_params_t params = {
-            digest_type: DIGEST_NONE,
-            padding_type: PADDING_NONE,
+            .digest_type = DIGEST_NONE,
+            .padding_type = PADDING_NONE,
     };
 
     UniqueReadOnlyBlob testData(TEST_SIGN_DATA_1, sizeof(TEST_SIGN_DATA_1));

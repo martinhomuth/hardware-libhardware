@@ -16,12 +16,17 @@
 #define LOG_TAG "ConsumerIrHal"
 
 #include <errno.h>
+#include <malloc.h>
+#include <stdlib.h>
 #include <string.h>
-#include <cutils/log.h>
-#include <hardware/hardware.h>
-#include <hardware/consumerir.h>
+#include <unistd.h>
 
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
+#include <log/log.h>
+
+#include <hardware/consumerir.h>
+#include <hardware/hardware.h>
+
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
 static const consumerir_freq_range_t consumerir_freqs[] = {
     {.min = 30000, .max = 30000},

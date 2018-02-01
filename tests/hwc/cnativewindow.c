@@ -37,7 +37,7 @@ typedef struct ANativeWindow aWindow;
 static int trace_level = 1;
 
 #define _TRACE(n,fmt...) \
-	do { if (trace_level >= n) fprintf(stderr, "CNW: " fmt); } while (0)
+	do { if (trace_level >= (n)) fprintf(stderr, "CNW: " fmt); } while (0)
 
 #define ERROR(fmt...) _TRACE(0, fmt)
 #define INFO(fmt...) _TRACE(1, fmt)
@@ -181,7 +181,7 @@ static void hwc_post(CNativeWindow *win, aBuffer *buf, int ffd) {
 	hwc_composer_device_1_t *hwc = win->hwc;
 	hwc_display_contents_1_t *dc = &(win->dc);
 	hwc_layer_1_t *dl = win->dc.hwLayers;
-	int r, i;
+	int r;
 
 	dc->retireFenceFd = -1;
 	dc->outbufAcquireFenceFd = -1;
@@ -337,8 +337,8 @@ static int cnw_perform(aWindow *base, int op, ...) {
 		TRACE("set scaling mode %d\n", va_arg(ap,int));
 		return 0;
 	case NATIVE_WINDOW_SET_BUFFERS_DIMENSIONS: {
-		int w = va_arg(ap,int);
-		int h = va_arg(ap,int);
+		unsigned int w = va_arg(ap,unsigned int);
+		unsigned int h = va_arg(ap,unsigned int);
 		if ((w == win->width) && (h == win->height)) {
 			TRACE("set buffers dimensions %d x %d\n", w, h);
 			return 0;
@@ -377,7 +377,7 @@ static int hwc_init(CNativeWindow *win) {
 	unsigned i;
 	int r;
 	uint32_t configs[32];
-	uint32_t numconfigs = 32;
+	size_t numconfigs = 32;
 	int32_t values[8];
 
 	if (hw_get_module(HWC_HARDWARE_MODULE_ID, &module) != 0) {
@@ -462,8 +462,8 @@ static int cnw_init(CNativeWindow *win) {
 	hw_module_t const* module;
 	framebuffer_device_t *fb = NULL;
 	alloc_device_t *gr;
-	int err, i, n;
-	unsigned usage, format;
+	int err, i;
+	unsigned usage;
 
 	memset(win, 0, sizeof(CNativeWindow));
 

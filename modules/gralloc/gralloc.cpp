@@ -14,25 +14,24 @@
  * limitations under the License.
  */
 
-#include <limits.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/ioctl.h>
+#include <unistd.h>
 
 #include <cutils/ashmem.h>
-#include <cutils/log.h>
 #include <cutils/atomic.h>
+#include <log/log.h>
 
-#include <hardware/hardware.h>
 #include <hardware/gralloc.h>
+#include <hardware/hardware.h>
 
 #include "gralloc_priv.h"
 #include "gr.h"
@@ -196,36 +195,44 @@ static int gralloc_alloc_buffer(alloc_device_t* dev,
 
 /*****************************************************************************/
 
+inline size_t align(size_t value, size_t alignment)
+{
+    return ((value + alignment - 1) / alignment) * alignment;
+}
+
 static int gralloc_alloc(alloc_device_t* dev,
-        int w, int h, int format, int usage,
+        int width, int height, int format, int usage,
         buffer_handle_t* pHandle, int* pStride)
 {
     if (!pHandle || !pStride)
         return -EINVAL;
 
-    size_t size, stride;
-
-    int align = 4;
-    int bpp = 0;
+    int bytesPerPixel = 0;
     switch (format) {
+        case HAL_PIXEL_FORMAT_RGBA_FP16:
+            bytesPerPixel = 8;
+            break;
         case HAL_PIXEL_FORMAT_RGBA_8888:
         case HAL_PIXEL_FORMAT_RGBX_8888:
         case HAL_PIXEL_FORMAT_BGRA_8888:
-            bpp = 4;
+            bytesPerPixel = 4;
             break;
         case HAL_PIXEL_FORMAT_RGB_888:
-            bpp = 3;
+            bytesPerPixel = 3;
             break;
         case HAL_PIXEL_FORMAT_RGB_565:
-        case HAL_PIXEL_FORMAT_RAW_SENSOR:
-            bpp = 2;
+        case HAL_PIXEL_FORMAT_RAW16:
+            bytesPerPixel = 2;
             break;
         default:
             return -EINVAL;
     }
-    size_t bpr = (w*bpp + (align-1)) & ~(align-1);
-    size = bpr * h;
-    stride = bpr / bpp;
+
+    const size_t tileWidth = 2;
+    const size_t tileHeight = 2;
+
+    size_t stride = align(width, tileWidth);
+    size_t size = align(height, tileHeight) * stride * bytesPerPixel + 4;
 
     int err;
     if (usage & GRALLOC_USAGE_HW_FB) {

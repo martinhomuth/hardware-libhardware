@@ -15,7 +15,6 @@
  */
 
 #include <cstddef>
-#include <system/window.h>
 #include <hardware/hardware.h>
 #include <hardware/sensors.h>
 #include <hardware/fb.h>
@@ -115,7 +114,10 @@ void CheckOffsets(void) {
     CHECK_MEMBER_AT(sensors_poll_device_1_t, poll, 72, 136);
     CHECK_MEMBER_AT(sensors_poll_device_1_t, batch, 76, 144);
     CHECK_MEMBER_AT(sensors_poll_device_1_t, flush, 80, 152);
-    CHECK_MEMBER_AT(sensors_poll_device_1_t, reserved_procs, 84, 160);
+    CHECK_MEMBER_AT(sensors_poll_device_1_t, inject_sensor_data, 84, 160);
+    CHECK_MEMBER_AT(sensors_poll_device_1_t, register_direct_channel, 88, 168);
+    CHECK_MEMBER_AT(sensors_poll_device_1_t, config_direct_report, 92, 176);
+    CHECK_MEMBER_AT(sensors_poll_device_1_t, reserved_procs, 96, 184);
 
     //Types defined in fb.h
     CHECK_MEMBER_AT(framebuffer_device_t, common, 0, 0);
@@ -212,7 +214,9 @@ void CheckOffsets(void) {
     CHECK_MEMBER_AT(camera_module_t, set_callbacks, 136, 264);
     CHECK_MEMBER_AT(camera_module_t, get_vendor_tag_ops, 140, 272);
     CHECK_MEMBER_AT(camera_module_t, open_legacy, 144, 280);
-    CHECK_MEMBER_AT(camera_module_t, reserved, 148, 288);
+    CHECK_MEMBER_AT(camera_module_t, set_torch_mode, 148, 288);
+    CHECK_MEMBER_AT(camera_module_t, init, 152, 296);
+    CHECK_MEMBER_AT(camera_module_t, reserved, 156, 304);
 
     //Types defined in camera3.h
     CHECK_MEMBER_AT(camera3_device_ops_t, initialize, 0, 0);

@@ -23,17 +23,23 @@
 #include <pthread.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdio.h>
+#include <unistd.h>
 
 #define LOG_TAG "HAL"
-#include <utils/Log.h>
+#include <log/log.h>
+
+#include <vndksupport/linker.h>
 
 /** Base path of the hal modules */
 #if defined(__LP64__)
 #define HAL_LIBRARY_PATH1 "/system/lib64/hw"
 #define HAL_LIBRARY_PATH2 "/vendor/lib64/hw"
+#define HAL_LIBRARY_PATH3 "/odm/lib64/hw"
 #else
 #define HAL_LIBRARY_PATH1 "/system/lib/hw"
 #define HAL_LIBRARY_PATH2 "/vendor/lib/hw"
+#define HAL_LIBRARY_PATH3 "/odm/lib/hw"
 #endif
 
 /**
@@ -67,16 +73,29 @@ static int load(const char *id,
         const char *path,
         const struct hw_module_t **pHmi)
 {
-    int status;
-    void *handle;
-    struct hw_module_t *hmi;
+    int status = -EINVAL;
+    void *handle = NULL;
+    struct hw_module_t *hmi = NULL;
+#ifdef __ANDROID_VNDK__
+    const bool try_system = false;
+#else
+    const bool try_system = true;
+#endif
 
     /*
      * load the symbols resolving undefined symbols before
      * dlopen returns. Since RTLD_GLOBAL is not or'd in with
      * RTLD_NOW the external symbols will not be global
      */
-    handle = dlopen(path, RTLD_NOW);
+    if (try_system &&
+        strncmp(path, HAL_LIBRARY_PATH1, strlen(HAL_LIBRARY_PATH1)) == 0) {
+        /* If the library is in system partition, no need to check
+         * sphal namespace. Open it with dlopen.
+         */
+        handle = dlopen(path, RTLD_NOW);
+    } else {
+        handle = android_load_sphal_library(path, RTLD_NOW);
+    }
     if (handle == NULL) {
         char const *err_str = dlerror();
         ALOGE("load: module=%s\n%s", path, err_str?err_str:"unknown");
@@ -130,14 +149,21 @@ static int hw_module_exists(char *path, size_t path_len, const char *name,
                             const char *subname)
 {
     snprintf(path, path_len, "%s/%s.%s.so",
-             HAL_LIBRARY_PATH2, name, subname);
+             HAL_LIBRARY_PATH3, name, subname);
     if (access(path, R_OK) == 0)
         return 0;
 
     snprintf(path, path_len, "%s/%s.%s.so",
+             HAL_LIBRARY_PATH2, name, subname);
+    if (access(path, R_OK) == 0)
+        return 0;
+
+#ifndef __ANDROID_VNDK__
+    snprintf(path, path_len, "%s/%s.%s.so",
              HAL_LIBRARY_PATH1, name, subname);
     if (access(path, R_OK) == 0)
         return 0;
+#endif
 
     return -ENOENT;
 }
@@ -145,11 +171,12 @@ static int hw_module_exists(char *path, size_t path_len, const char *name,
 int hw_get_module_by_class(const char *class_id, const char *inst,
                            const struct hw_module_t **module)
 {
-    int i;
-    char prop[PATH_MAX];
-    char path[PATH_MAX];
-    char name[PATH_MAX];
-    char prop_name[PATH_MAX];
+    int i = 0;
+    char prop[PATH_MAX] = {0};
+    char path[PATH_MAX] = {0};
+    char name[PATH_MAX] = {0};
+    char prop_name[PATH_MAX] = {0};
+
 
     if (inst)
         snprintf(name, PATH_MAX, "%s.%s", class_id, inst);

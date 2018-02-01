@@ -4,14 +4,14 @@
 #include <pthread.h>
 #include <cutils/atomic.h>
 
-#include "SensorEventQueue.cpp"
+#include "SensorEventQueue.h"
 
 // Unit tests for the SensorEventQueue.
 
 // Run it like this:
 //
-// make sensorstests -j32 && \
-// out/host/linux-x86/obj/EXECUTABLES/sensorstests_intermediates/sensorstests
+// m sensorstests && \
+// out/host/linux-x86/nativetest64/sensorstests/sensorstests
 
 bool checkWritableBufferSize(SensorEventQueue* queue, int requested, int expected) {
     sensors_event_t* buffer;
@@ -32,7 +32,7 @@ bool checkSize(SensorEventQueue* queue, int expected) {
     return true;
 }
 
-bool checkInt(char* msg, int expected, int actual) {
+bool checkInt(const char* msg, int expected, int actual) {
     if (actual != expected) {
         printf("%s; expected %d; actual was %d\n", msg, expected, actual);
         return false;
@@ -187,7 +187,7 @@ bool testFullQueueIo() {
 }
 
 
-int main(int argc, char **argv) {
+int main(int argc __attribute((unused)), char **argv __attribute((unused))) {
     if (testSimpleWriteSizeCounts() &&
             testWrappingWriteSizeCounts() &&
             testFullQueueIo()) {

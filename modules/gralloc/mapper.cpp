@@ -14,32 +14,23 @@
  * limitations under the License.
  */
 
-#include <limits.h>
 #include <errno.h>
+#include <limits.h>
 #include <pthread.h>
-#include <unistd.h>
 #include <string.h>
-
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 
-#include <cutils/log.h>
 #include <cutils/atomic.h>
+#include <log/log.h>
 
 #include <hardware/hardware.h>
 #include <hardware/gralloc.h>
 
 #include "gralloc_priv.h"
 
-
-/* desktop Linux needs a little help with gettid() */
-#if defined(ARCH_X86) && !defined(HAVE_ANDROID_OS)
-#define __KERNEL__
-# include <linux/unistd.h>
-pid_t gettid() { return syscall(__NR_gettid);}
-#undef __KERNEL__
-#endif
 
 /*****************************************************************************/
 

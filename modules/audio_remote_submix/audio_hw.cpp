@@ -24,10 +24,13 @@
 #include <sys/param.h>
 #include <sys/time.h>
 #include <sys/limits.h>
+#include <unistd.h>
 
-#include <cutils/log.h>
+#include <cutils/compiler.h>
 #include <cutils/properties.h>
 #include <cutils/str_parms.h>
+#include <log/log.h>
+#include <utils/String8.h>
 
 #include <hardware/audio.h>
 #include <hardware/hardware.h>
@@ -37,8 +40,6 @@
 #include <media/AudioBufferProvider.h>
 #include <media/nbaio/MonoPipe.h>
 #include <media/nbaio/MonoPipeReader.h>
-
-#include <utils/String8.h>
 
 #define LOG_STREAMS_TO_FILES 0
 #if LOG_STREAMS_TO_FILES
@@ -62,7 +63,7 @@ namespace android {
 #endif // SUBMIX_VERBOSE_LOGGING
 
 // NOTE: This value will be rounded up to the nearest power of 2 by MonoPipe().
-#define DEFAULT_PIPE_SIZE_IN_FRAMES  (1024*8)
+#define DEFAULT_PIPE_SIZE_IN_FRAMES  (1024*4)
 // Value used to divide the MonoPipe() buffer into segments that are written to the source and
 // read from the sink.  The maximum latency of the device is the size of the MonoPipe's buffer
 // the minimum latency is the MonoPipe buffer size divided by this value.
@@ -88,7 +89,7 @@ namespace android {
 #define ENABLE_RESAMPLING            1
 #if LOG_STREAMS_TO_FILES
 // Folder to save stream log files to.
-#define LOG_STREAM_FOLDER "/data/misc/media"
+#define LOG_STREAM_FOLDER "/data/misc/audioserver"
 // Log filenames for input and output streams.
 #define LOG_STREAM_OUT_FILENAME LOG_STREAM_FOLDER "/r_submix_out.raw"
 #define LOG_STREAM_IN_FILENAME LOG_STREAM_FOLDER "/r_submix_in.raw"
@@ -178,6 +179,8 @@ struct submix_stream_out {
     struct submix_audio_device *dev;
     int route_handle;
     bool output_standby;
+    uint64_t frames_written;
+    uint64_t frames_written_since_standby;
 #if LOG_STREAMS_TO_FILES
     int log_fd;
 #endif // LOG_STREAMS_TO_FILES
@@ -189,11 +192,10 @@ struct submix_stream_in {
     int route_handle;
     bool input_standby;
     bool output_standby_rec_thr; // output standby state as seen from record thread
-
     // wall clock when recording starts
     struct timespec record_start_time;
     // how many frames have been requested to be read
-    int64_t read_counter_frames;
+    uint64_t read_counter_frames;
 
 #if ENABLE_LEGACY_INPUT_OPEN
     // Number of references to this input stream.
@@ -485,7 +487,6 @@ static void submix_audio_device_destroy_pipe_l(struct submix_audio_device * cons
                                              const struct submix_stream_in * const in,
                                              const struct submix_stream_out * const out)
 {
-    MonoPipe* sink;
     ALOGV("submix_audio_device_destroy_pipe_l()");
     int route_idx = -1;
     if (in != NULL) {
@@ -699,6 +700,7 @@ static int out_standby(struct audio_stream *stream)
     pthread_mutex_lock(&rsxadev->lock);
 
     out->output_standby = true;
+    out->frames_written_since_standby = 0;
 
     pthread_mutex_unlock(&rsxadev->lock);
 
@@ -820,7 +822,7 @@ static ssize_t out_write(struct audio_stream_out *stream, const void* buffer,
                 const size_t flush_size = min(frames_to_flush_from_source, flushBufferSizeFrames);
                 frames_to_flush_from_source -= flush_size;
                 // read does not block
-                source->read(flush_buffer, flush_size, AudioBufferProvider::kInvalidPTS);
+                source->read(flush_buffer, flush_size);
             }
         }
     }
@@ -852,6 +854,10 @@ static ssize_t out_write(struct audio_stream_out *stream, const void* buffer,
 
     pthread_mutex_lock(&rsxadev->lock);
     sink.clear();
+    if (written_frames > 0) {
+        out->frames_written_since_standby += written_frames;
+        out->frames_written += written_frames;
+    }
     pthread_mutex_unlock(&rsxadev->lock);
 
     if (written_frames < 0) {
@@ -863,12 +869,63 @@ static ssize_t out_write(struct audio_stream_out *stream, const void* buffer,
     return written_bytes;
 }
 
+static int out_get_presentation_position(const struct audio_stream_out *stream,
+                                   uint64_t *frames, struct timespec *timestamp)
+{
+    if (stream == NULL || frames == NULL || timestamp == NULL) {
+        return -EINVAL;
+    }
+
+    const submix_stream_out *out = audio_stream_out_get_submix_stream_out(
+            const_cast<struct audio_stream_out *>(stream));
+    struct submix_audio_device * const rsxadev = out->dev;
+
+    int ret = -EWOULDBLOCK;
+    pthread_mutex_lock(&rsxadev->lock);
+    const ssize_t frames_in_pipe =
+            rsxadev->routes[out->route_handle].rsxSource->availableToRead();
+    if (CC_UNLIKELY(frames_in_pipe < 0)) {
+        *frames = out->frames_written;
+        ret = 0;
+    } else if (out->frames_written >= (uint64_t)frames_in_pipe) {
+        *frames = out->frames_written - frames_in_pipe;
+        ret = 0;
+    }
+    pthread_mutex_unlock(&rsxadev->lock);
+
+    if (ret == 0) {
+        clock_gettime(CLOCK_MONOTONIC, timestamp);
+    }
+
+    SUBMIX_ALOGV("out_get_presentation_position() got frames=%llu timestamp sec=%llu",
+            frames ? *frames : -1, timestamp ? timestamp->tv_sec : -1);
+
+    return ret;
+}
+
 static int out_get_render_position(const struct audio_stream_out *stream,
                                    uint32_t *dsp_frames)
 {
-    (void)stream;
-    (void)dsp_frames;
-    return -EINVAL;
+    if (stream == NULL || dsp_frames == NULL) {
+        return -EINVAL;
+    }
+
+    const submix_stream_out *out = audio_stream_out_get_submix_stream_out(
+            const_cast<struct audio_stream_out *>(stream));
+    struct submix_audio_device * const rsxadev = out->dev;
+
+    pthread_mutex_lock(&rsxadev->lock);
+    const ssize_t frames_in_pipe =
+            rsxadev->routes[out->route_handle].rsxSource->availableToRead();
+    if (CC_UNLIKELY(frames_in_pipe < 0)) {
+        *dsp_frames = (uint32_t)out->frames_written_since_standby;
+    } else {
+        *dsp_frames = out->frames_written_since_standby > (uint64_t) frames_in_pipe ?
+                (uint32_t)(out->frames_written_since_standby - frames_in_pipe) : 0;
+    }
+    pthread_mutex_unlock(&rsxadev->lock);
+
+    return 0;
 }
 
 static int out_add_audio_effect(const struct audio_stream *stream, effect_handle_t effect)
@@ -1029,7 +1086,6 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
 {
     struct submix_stream_in * const in = audio_stream_in_get_submix_stream_in(stream);
     struct submix_audio_device * const rsxadev = in->dev;
-    struct audio_config *format;
     const size_t frame_size = audio_stream_in_frame_size(stream);
     const size_t frames_to_read = bytes / frame_size;
 
@@ -1134,7 +1190,7 @@ static ssize_t in_read(struct audio_stream_in *stream, void* buffer,
 
             SUBMIX_ALOGV("in_read(): frames available to read %zd", source->availableToRead());
 
-            frames_read = source->read(buff, read_frames, AudioBufferProvider::kInvalidPTS);
+            frames_read = source->read(buff, read_frames);
 
             SUBMIX_ALOGV("in_read(): frames read %zd", frames_read);
 
@@ -1335,6 +1391,7 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
     out->stream.write = out_write;
     out->stream.get_render_position = out_get_render_position;
     out->stream.get_next_write_timestamp = out_get_next_write_timestamp;
+    out->stream.get_presentation_position = out_get_presentation_position;
 
 #if ENABLE_RESAMPLING
     // Recreate the pipe with the correct sample rate so that MonoPipe.write() rate limits
@@ -1514,7 +1571,7 @@ static int adev_open_input_stream(struct audio_hw_device *dev,
 
     status_t res = submix_get_route_idx_for_address_l(rsxadev, address, &route_idx);
     if (res != OK) {
-        ALOGE("Error %d looking for address=%s in adev_open_output_stream", res, address);
+        ALOGE("Error %d looking for address=%s in adev_open_input_stream", res, address);
         pthread_mutex_unlock(&rsxadev->lock);
         return res;
     }

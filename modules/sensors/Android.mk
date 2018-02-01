@@ -22,31 +22,26 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE := sensors.$(TARGET_DEVICE)
 
-LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
+LOCAL_MODULE_RELATIVE_PATH := hw
+LOCAL_PROPRIETARY_MODULE := true
 
-LOCAL_CFLAGS := -DLOG_TAG=\"MultiHal\"
+LOCAL_CFLAGS := -Wall -Werror -DLOG_TAG=\"MultiHal\"
 
 LOCAL_SRC_FILES := \
     multihal.cpp \
-    SensorEventQueue.h \
     SensorEventQueue.cpp \
+
+LOCAL_HEADER_LIBRARIES := \
+    libhardware_headers \
 
 LOCAL_SHARED_LIBRARIES := \
     libcutils \
     libdl \
     liblog \
-    libstlport \
     libutils \
 
-LOCAL_PRELINK_MODULE := false
 LOCAL_STRIP_MODULE := false
-
-LOCAL_C_INCLUDES := \
-    external/stlport/stlport \
-    bionic \
 
 include $(BUILD_SHARED_LIBRARY)
 
 endif # USE_SENSOR_MULTI_HAL
-
-include $(call all-makefiles-under, $(LOCAL_PATH))

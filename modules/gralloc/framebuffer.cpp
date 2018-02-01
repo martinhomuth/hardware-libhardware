@@ -14,26 +14,22 @@
  * limitations under the License.
  */
 
+#include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 
-#include <dlfcn.h>
-
 #include <cutils/ashmem.h>
-#include <cutils/log.h>
-
-#include <hardware/hardware.h>
-#include <hardware/gralloc.h>
-
-#include <fcntl.h>
-#include <errno.h>
-#include <sys/ioctl.h>
-#include <string.h>
-#include <stdlib.h>
-
-#include <cutils/log.h>
 #include <cutils/atomic.h>
+#include <log/log.h>
 
-#if HAVE_ANDROID_OS
+#include <hardware/gralloc.h>
+#include <hardware/hardware.h>
+
+#ifdef __ANDROID__
 #include <linux/fb.h>
 #endif
 
@@ -67,25 +63,9 @@ struct fb_context_t {
 static int fb_setSwapInterval(struct framebuffer_device_t* dev,
             int interval)
 {
-    fb_context_t* ctx = (fb_context_t*)dev;
     if (interval < dev->minSwapInterval || interval > dev->maxSwapInterval)
         return -EINVAL;
     // FIXME: implement fb_setSwapInterval
-    return 0;
-}
-
-static int fb_setUpdateRect(struct framebuffer_device_t* dev,
-        int l, int t, int w, int h)
-{
-    if (((w|h) <= 0) || ((l|t)<0))
-        return -EINVAL;
-        
-    fb_context_t* ctx = (fb_context_t*)dev;
-    private_module_t* m = reinterpret_cast<private_module_t*>(
-            dev->common.module);
-    m->info.reserved[0] = 0x54445055; // "UPDT";
-    m->info.reserved[1] = (uint16_t)l | ((uint32_t)t << 16);
-    m->info.reserved[2] = (uint16_t)(l+w) | ((uint32_t)(t+h) << 16);
     return 0;
 }
 
@@ -93,8 +73,6 @@ static int fb_post(struct framebuffer_device_t* dev, buffer_handle_t buffer)
 {
     if (private_handle_t::validate(buffer) < 0)
         return -EINVAL;
-
-    fb_context_t* ctx = (fb_context_t*)dev;
 
     private_handle_t const* hnd = reinterpret_cast<private_handle_t const*>(buffer);
     private_module_t* m = reinterpret_cast<private_module_t*>(
@@ -283,7 +261,6 @@ int mapFrameBufferLocked(struct private_module_t* module)
      * map the framebuffer
      */
 
-    int err;
     size_t fbSize = roundUpToPageSize(finfo.line_length * info.yres_virtual);
     module->framebuffer = new private_handle_t(dup(fd), fbSize, 0);
 
